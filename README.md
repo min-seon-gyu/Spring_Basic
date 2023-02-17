@@ -291,6 +291,371 @@ public class SingletonService {
 - 수동 빈 등록 vs 자동 빈 등록
 수동 빈 등록이 우선권을 가진다. (스프링 부트는 예외 발생)
 
+## 의존관계 주입 방법
+1. 생성자 주입
+이름 그대로 생성자를 통해서 의존 관계를 주입 받는 방법이다. 생성자 호출시점에 딱 1번만 호출되는 것이 보장된다.(불변, 필수 의존관계에 사용)
+```java
+@Component
+public class OrderServiceImpl implements OrderService {
+    
+	private final MemberRepository memberRepository;
+	private final DiscountPolicy discountPolicy; 
+    
+    //생성자가 딱 1개만 있으면 @Autowired를 생략해도 자동 주입 된다.
+    @Autowired
+	public OrderServiceImpl(MemberRepository memberRepository, DiscountPolicy discountPolicy) {
+		this.memberRepository = memberRepository;
+		this.discountPolicy = discountPolicy;
+	}
+}
+```
+2. 수정자 주입(setter 주입)
+setter라 불리는 필드의 값을 변경하는 수정자 메서드를 통해서 의존관계를 주입하는 방법이다. 자바빈 프로퍼티 규약의 수정자 메서드 방식을 사용하는 방법이다.(선택, 변경 가능성이 있는 의존관계에 사용)
+```java
+@Component
+public class OrderServiceImpl implements OrderService {
+
+ 	private MemberRepository memberRepository;
+ 	private DiscountPolicy discountPolicy; 
+    
+    @Autowired
+ 	public void setMemberRepository(MemberRepository memberRepository) {
+		this.memberRepository = memberRepository;
+ 	}
+    
+ 	@Autowired
+ 	public void setDiscountPolicy(DiscountPolicy discountPolicy) {
+ 		this.discountPolicy = discountPolicy;
+ 	}
+}
+```
+3. 필드 주입
+이름 그대로 필드에 바로 주입하는 방법이다. 코드가 간결해서 많은 개발자들을 유혹하지만 외부에서 변경이 불가능해서 테스트 하기 힘들다는 치명적인 단점이 있다. DI 프레임워크가 없으면 아무것도 할 수 없다.
+```java
+@Component
+public class OrderServiceImpl implements OrderService {
+
+ 	@Autowired
+ 	private MemberRepository memberRepository;
+ 	@Autowired
+ 	private DiscountPolicy discountPolicy;
+}
+```
+4. 일반 메서드 주입
+일반 메서드를 통해서 주입 받을 수 있다. 한번에 여러 필드를 주입 받을 수 있다.
+```java
+@Component
+public class OrderServiceImpl implements OrderService {
+
+ 	private MemberRepository memberRepository;
+ 	private DiscountPolicy discountPolicy;
+    
+ 	@Autowired
+ 	public void init(MemberRepository memberRepository, DiscountPolicy discountPolicy) {
+ 		this.memberRepository = memberRepository;
+ 		this.discountPolicy = discountPolicy;
+ 	}
+}
+```
+
+### 옵션처리
+- @Autowired(required=false) : 자동 주입할 대상이 없으면 수정자 메서드 자체가 호출 안된다.
+- org.springframework.lang.@Nullable : 자동 주입할 대상이 없으면 null이 입력된다.
+- Optional<> : 자동 주입할 대상이 없으면 Optional.empty 가 입력된다.
+
+### 생성자 주입 사용을 권장
+- 대부분의 의존관계 주입은 한번 일어나면 애플리케이션 종료시점까지 의존관계를 변경할 일이 없다. 
+- 수정자 주입을 사용하면, setXxx 메서드를 public으로 열어두어야 한다.
+- 프레임워크에 의존하지 않고, 순수한 자바 언어의 특징을 잘 살리는 방법이기도 하다.
+- 기본으로 생성자 주입을 사용하고, 필수 값이 아닌 경우에는 수정자 주입 방식을 옵션으로 부여하면 된다. 생성자 주입과 수정자 주입을 동시에 사용할 수 있다.
+
+## 조회 빈이 2개 이상 - 문제
+@Autowired 는 타입(Type)으로 조회를 하는데 선택된 빈이 2개 이상일 때 문제가 발생한다.(NoUniqueBeanDefinitionException 예외 발생)
+이때 하위 타입으로 지정할 수 도 있지만, 하위 타입으로 지정하는 것은 DIP를 위배하고 유연성이 떨어진다. 그리고 이름만 다르고, 완전히 똑같은 타입의 스프링 빈이 2개 있을 때 해결이 안된다.
+스프링 빈을 수동 등록해서 문제를 해결해도 되지만, 의존 관계 자동 주입에서 해결하는 여러 방법이 있다.
+
+### @Autowired 필드 명
+@Autowired 는 타입 매칭을 시도하고, 이때 여러 빈이 있으면 필드 이름, 파라미터 이름으로 빈 이름을 추가 매칭한다.
+
+### @Qualifier
+@Qualifier 는 추가 구분자를 붙여주는 방법이다. 주입시 추가적인 방법을 제공하는 것이지 빈 이름을
+변경하는 것은 아니다.
+
+```java
+@Component
+@Qualifier("mainDiscountPolicy")
+public class RateDiscountPolicy implements DiscountPolicy {}
+```
+
+```java
+@Autowired
+public OrderServiceImpl(MemberRepository memberRepository,
+	@Qualifier("mainDiscountPolicy") DiscountPolicy discountPolicy) {
+ 	this.memberRepository = memberRepository;
+ 	this.discountPolicy = discountPolicy;
+}
+```
+- @Qualifier 로 주입할 때 @Qualifier("mainDiscountPolicy") 를 못찾으면 어떻게 될까? 그러면 mainDiscountPolicy라는 이름의 스프링 빈을 추가로 찾는다. 하지만 경험상 @Qualifier는 @Qualifier를 찾는 용도로만 사용하는게 명확하고 좋다.
+- 직접 빈 등록시에도 @Qualifier를 동일하게 사용할 수 있다.
+
+### @Primary
+@Primary 는 우선순위를 정하는 방법이다. @Autowired 시에 여러 빈이 매칭되면 @Primary 가 우선권을 가진다.
+```java
+@Component
+@Primary
+public class RateDiscountPolicy implements DiscountPolicy {}
+
+@Component
+public class FixDiscountPolicy implements DiscountPolicy {}
+```
+
+```java
+@Autowired
+public OrderServiceImpl(MemberRepository memberRepository, DiscountPolicy discountPolicy) {
+ 	this.memberRepository = memberRepository;
+ 	this.discountPolicy = discountPolicy;}
+}
+```
+
+### 우선순위
+@Qualifier가 우선권이 높다.
+
+## 조회한 빈이 모두 필요할 때, List, Map
+
+- Map<String, DiscountPolicy> : map의 키에 스프링 빈의 이름을 넣어주고, 그 값으로
+DiscountPolicy 타입으로 조회한 모든 스프링 빈을 담아준다.
+- List<DiscountPolicy> : DiscountPolicy 타입으로 조회한 모든 스프링 빈을 담아준다. 만약 해당하는 타입의 스프링 빈이 없으면, 빈 컬렉션이나 Map을 주입한다.
+  
+```java
+@Component
+public class OrderServiceImpl implements OrderService {
+    
+	private final Map<String, DiscountPolicy> policyMap;
+	private final List<DiscountPolicy> policies;
+    
+    //생성자가 딱 1개만 있으면 @Autowired를 생략해도 자동 주입 된다.
+    @Autowired
+	public OrderServiceImpl(MemberRepository memberRepository, DiscountPolicy discountPolicy) {
+		this.memberRepository = memberRepository;
+		this.discountPolicy = discountPolicy;
+	}
+}
+```
+## 자동, 수동의 올바른 실무 운영 기준
+애플리케이션은 크게 업무 로직과 기술 지원 로직으로 나눌 수 있다.
+- 업무 로직 빈: 웹을 지원하는 컨트롤러, 핵심 비즈니스 로직이 있는 서비스, 데이터 계층의 로직을 처리하는 리포지토리등이 모두 업무 로직이다. 보통 비즈니스 요구사항을 개발할 때 추가되거나 변경된다.(자동 권장)
+- 기술 지원 빈: 기술적인 문제나 공통 관심사(AOP)를 처리할 때 주로 사용된다. 데이터베이스 연결이나, 공통 로그 처리 처럼 업무 로직을 지원하기 위한 하부 기술이나 공통 기술들이다.(수동 권장)
+
+스프링은 의존관계 주입이 완료되면 스프링 빈에게 콜백 메서드를 통해서 초기화 시점을 알려주는 다양한
+기능을 제공한다. 또한 스프링은 스프링 컨테이너가 종료되기 직전에 소멸 콜백을 준다. 
+
+#### 스프링 빈의 이벤트 라이프사이클
+스프링 컨테이너 생성 -> 스프링 빈 생성 -> 의존관계 주입 -> 초기화 콜백 -> 사용 -> 소멸전 콜백 -> 스프링 종료
+
+- 초기화 콜백: 빈이 생성되고, 빈의 의존관계 주입이 완료된 후 호출
+- 소멸전 콜백: 빈이 소멸되기 직전에 호출
+
+## 인터페이스(InitializingBean, DisposableBean)
+
+- InitializingBean은 afterPropertiesSet() 메서드로 초기화를 지원한다.
+- DisposableBean은 destroy() 메서드로 소멸을 지원한다.
+
+```java
+public class NetworkClient implements InitializingBean, DisposableBean {
+
+ 	private String url;
+    
+ 	public NetworkClient() {
+ 		System.out.println("생성자 호출, url = " + url);
+ 	}
+    
+ 	public void setUrl(String url) {
+ 		this.url = url;
+ 	}
+    
+ 	//서비스 시작시 호출
+ 	public void connect() {
+ 		System.out.println("connect: " + url);
+ 	}
+    
+ 	public void call(String message) {
+ 		System.out.println("call: " + url + " message = " + message);
+ 	}
+ 
+	//서비스 종료시 호출
+ 	public void disConnect() {
+ 		System.out.println("close + " + url);
+ 	}
+ 
+ 	@Override
+ 	public void afterPropertiesSet() throws Exception {
+ 		connect();
+ 		call("초기화 연결 메시지");
+ 	}
+ 
+ 	@Override
+ 	public void destroy() throws Exception {
+ 		disConnect();
+ 	}
+}
+```
+
+
+```java
+@Configuration
+static class LifeCycleConfig {
+
+ 	public NetworkClient networkClient() {
+ 		NetworkClient networkClient = new NetworkClient();
+ 		networkClient.setUrl("http://hello-spring.dev");
+ 		return networkClient;
+ 	}
+}
+```
+
+### 초기화, 소멸 인터페이스 단점
+- 이 인터페이스는 스프링 전용 인터페이스다. 해당 코드가 스프링 전용 인터페이스에 의존한다.
+- 초기화, 소멸 메서드의 이름을 변경할 수 없다.
+- 내가 코드를 고칠 수 없는 외부 라이브러리에 적용할 수 없다.
+
+## 설정 정보에 초기화 메서드, 종료 메서드 지정
+설정 정보에 @Bean(initMethod = "init", destroyMethod = "close") 처럼 초기화, 소멸 메서드를 지정할 수 있다.
+
+```java
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+public class NetworkClient {
+
+ 	private String url;
+    
+ 	public NetworkClient() {
+ 		System.out.println("생성자 호출, url = " + url);
+ 	}
+    
+	 public void setUrl(String url) {
+ 		this.url = url;
+ 	}
+    
+ 	//서비스 시작시 호출
+ 	public void connect() {
+ 		System.out.println("connect: " + url);
+ 	}
+    
+ 	public void call(String message) {
+ 		System.out.println("call: " + url + " message = " + message); 
+    }
+    
+ 	//서비스 종료시 호출
+ 	public void disConnect() {
+ 		System.out.println("close + " + url);
+ 	}
+    
+ 	public void init() {
+ 		System.out.println("NetworkClient.init");
+ 		connect();
+ 		call("초기화 연결 메시지");
+ 	}
+    
+ 	public void close() {
+ 		System.out.println("NetworkClient.close");
+ 		disConnect();
+ 	}
+}
+```
+
+```java
+@Configuration
+static class LifeCycleConfig {
+
+ 	@Bean(initMethod = "init", destroyMethod = "close")
+ 	public NetworkClient networkClient() {
+ 		NetworkClient networkClient = new NetworkClient();
+ 		networkClient.setUrl("http://hello-spring.dev");
+ 		return networkClient;
+ 	}
+}
+```
+### 설정 정보 사용 특징
+
+- 메서드 이름을 자유롭게 줄 수 있다.
+- 스프링 빈이 스프링 코드에 의존하지 않는다.
+- 코드가 아니라 설정 정보를 사용하기 때문에 코드를 고칠 수 없는 외부 라이브러리에도 초기화, 종료 메서드를 적용할 수 있다.
+
+### 종료 메서드 추론
+- @Bean의 destroyMethod 속성에는 아주 특별한 기능이 있다.
+- 라이브러리는 대부분 close , shutdown 이라는 이름의 종료 메서드를 사용한다. 
+- @Bean의 destroyMethod 는 기본값이 (inferred) (추론)으로 등록되어 있다.
+- 이 추론 기능은 close , shutdown 라는 이름의 메서드를 자동으로 호출해준다. 이름 그대로 종-료 메서드를 추론해서 호출해준다.
+- 따라서 직접 스프링 빈으로 등록하면 종료 메서드는 따로 적어주지 않아도 잘 동작한다.
+- 추론 기능을 사용하기 싫으면 destroyMethod="" 처럼 빈 공백을 지정하면 된다.
+
+## @PostConstruct, @PreDestroy 애노테이션 지원
+@PostConstruct , @PreDestroy 이 두 애노테이션을 사용하면 가장 편리하게 초기화와 종료를 실행할 수 있다.
+
+```java
+import javax.annotation.PostConstruct;
+import javax.annotation.PreDestroy;
+public class NetworkClient {
+
+ 	private String url;
+    
+ 	public NetworkClient() {
+ 		System.out.println("생성자 호출, url = " + url);
+ 	}
+    
+	 public void setUrl(String url) {
+ 		this.url = url;
+ 	}
+    
+ 	//서비스 시작시 호출
+ 	public void connect() {
+ 		System.out.println("connect: " + url);
+ 	}
+    
+ 	public void call(String message) {
+ 		System.out.println("call: " + url + " message = " + message); 
+    }
+    
+ 	//서비스 종료시 호출
+ 	public void disConnect() {
+ 		System.out.println("close + " + url);
+ 	}
+    
+ 	@PostConstruct
+ 	public void init() {
+ 		System.out.println("NetworkClient.init");
+ 		connect();
+ 		call("초기화 연결 메시지");
+ 	}
+    
+ 	@PreDestroy
+ 	public void close() {
+ 		System.out.println("NetworkClient.close");
+ 		disConnect();
+ 	}
+}
+```
+
+```java
+@Configuration
+static class LifeCycleConfig {
+    
+ 	@Bean
+ 	public NetworkClient networkClient() {
+ 		NetworkClient networkClient = new NetworkClient();
+ 		networkClient.setUrl("http://hello-spring.dev");
+ 		return networkClient;
+ 	}
+}
+```
+
+### @PostConstruct, @PreDestroy 애노테이션 특징
+- 최신 스프링에서 가장 권장하는 방법이다.
+- 애노테이션 하나만 붙이면 되므로 매우 편리하다.
+- 패키지를 잘 보면 javax.annotation.PostConstruct 이다. 스프링에 종속적인 기술이 아니라 JSR-250 라는 자바 표준이다. 따라서 스프링이 아닌 다른 컨테이너에서도 동작한다.
+- 컴포넌트 스캔과 잘 어울린다.
+- 유일한 단점은 외부 라이브러리에는 적용하지 못한다는 것이다. 외부 라이브러리를 초기화, 종료 해야 하면 @Bean의 기능을 사용하자
+
 _참고 문서 및 링크_
 - 스프링 핵심 원리 - 기본편(김영한)
 
