@@ -656,6 +656,97 @@ static class LifeCycleConfig {
 - 컴포넌트 스캔과 잘 어울린다.
 - 유일한 단점은 외부 라이브러리에는 적용하지 못한다는 것이다. 외부 라이브러리를 초기화, 종료 해야 하면 @Bean의 기능을 사용하자
 
+## 스프링이 지원하는 스코프
+- 싱글톤: 기본 스코프, 스프링 컨테이너의 시작과 종료까지 유지되는 가장 넓은 범위의 스코프이다.
+- 프로토타입: 스프링 컨테이너는 프로토타입 빈의 생성과 의존관계 주입까지만 관여하고 더는 관리하지 않는 매우 짧은 범위의 스코프이다.
+- 웹 관련 스코프
+  
+## 스코프 등록하는 방법
+```java
+// 자동등록
+@Scope("prototype")
+@Component
+public class HelloBean {}
+
+// 수동등록
+@Scope("prototype")
+@Bean
+PrototypeBean HelloBean() {
+	return new HelloBean();
+}
+```
+
+## 프로토타입 스코프
+싱글톤 스코프의 빈을 조회하면 스프링 컨테이너는 항상 같은 인스턴스의 스프링 빈을 반환한다. 반면에 프로토타입 스코프를 스프링 컨테이너에 조회하면 스프링 컨테이너는 항상 새로운 인스턴스를 생성해서 반환한다.
+
+### 프로토타입 빈의 특징 정리
+- 스프링 컨테이너에 요청할 때 마다 새로 생성된다.
+- 스프링 컨테이너는 프로토타입 빈의 생성과 의존관계 주입 그리고 초기화까지만 관여한다.
+- 종료 메서드가 호출되지 않는다.
+- 프로토타입 빈은 프로토타입 빈을 조회한 클라이언트가 관리해야 한다. 종료 메서드에 대한 호출도 클라이언트가 직접 해야한다.
+
+### 싱글톤 빈과 함께 사용시 문제점
+![](https://velog.velcdn.com/images/gcael/post/cdccfc27-8ea7-452a-b6f7-865b22abae75/image.PNG)
+
+clientBean 은 싱글톤이므로, 보통 스프링 컨테이너 생성 시점에 함께 생성되고, 의존관계 주입도 발생한다.
+1. clientBean 은 의존관계 자동 주입을 사용한다. 주입 시점에 스프링 컨테이너에 프로토타입 빈을
+요청한다.
+2. 스프링 컨테이너는 프로토타입 빈을 생성해서 clientBean 에 반환한다. 프로토타입 빈의 count 필드값은 0이다.
+
+![](https://velog.velcdn.com/images/gcael/post/a20431b4-be3e-416f-9a2a-4beb64df56b0/image.PNG)
+3. 클라이언트 A는 clientBean.logic() 을 호출한다.
+4. clientBean 은 prototypeBean의 addCount() 를 호출해서 프로토타입 빈의 count를 증가한다. 
+![](https://velog.velcdn.com/images/gcael/post/782323e1-526e-4a9a-bf48-8ca4efb157e2/image.PNG)
+5. 클라이언트 B는 clientBean.logic() 을 호출한다.
+6. clientBean 은 prototypeBean의 addCount() 를 호출해서 프로토타입 빈의 count를 증가한다. 원래 count 값이 1이었으므로 2가 된다.
+
+#### clientBean이 내부에 가지고 있는 프로토타입 빈은 이미 과거에 주입이 끝난 빈이다. 주입 시점에 스프링 컨테이너에 요청해서 프로토타입 빈이 새로 생성이 된 것이지, 사용 할 때마다 새로 생성되는 것이 아니다.
+
+### 문제 해결방법
+1. DL(Dependency Lookup)
+- 의존관계를 외부에서 주입(DI) 받는게 아니라 직접 필요한 의존관계를 찾는다.
+- ac.getBean() 을 통해서 항상 새로운 프로토타입 빈이 생성된다.
+- 스프링의 애플리케이션 컨텍스트 전체를 주입받게 되면, 스프링 컨테이너에 종속적인 코드가
+되고, 단위 테스트도 어려워진다.
+
+2. ObjectFactory, ObjectProvider
+- 지정한 빈을 컨테이너에서 대신 찾아주는 DL 서비스를 제공하는 것이 바로 ObjectProvider 이다. 참고로 과거에는 ObjectFactory 가 있었는데, 여기에 편의 기능을 추가해서 ObjectProvider 가 만들어졌다.
+- prototypeBeanProvider.getObject() 을 통해서 항상 새로운 프로토타입 빈이 생성된다.
+- ObjectFactory: 기능이 단순, 별도의 라이브러리 필요 없음, 스프링에 의존
+- ObjectProvider: ObjectFactory 상속, 옵션, 스트림 처리등 편의 기능이 많고, 별도의 라이브러리 필요없음, 스프링에 의존
+
+3. JSR-330 Provider
+- javax.inject.Provider 라는 JSR-330 자바 표준을 사용하는 방법이다.
+이 방법을 사용하려면 javax.inject:javax.inject:1 라이브러리를 gradle에 추가해야 한다.
+- provider.get() 을 통해서 항상 새로운 프로토타입 빈이 생성된다.
+
+## 웹 스코프
+- 웹 스코프는 웹 환경에서만 동작한다.
+- 웹 스코프는 프로토타입과 다르게 스프링이 해당 스코프의 종료시점까지 관리한다. 따라서 종료 메서드가 호출된다.
+
+### 웹 스코프 종류
+- request: HTTP 요청 하나가 들어오고 나갈 때 까지 유지되는 스코프, 각각의 HTTP 요청마다 별도의 빈 인스턴스가 생성되고, 관리된다.
+- session: HTTP Session과 동일한 생명주기를 가지는 스코프
+- application: 서블릿 컨텍스트( ServletContext )와 동일한 생명주기를 가지는 스코프
+- websocket: 웹 소켓과 동일한 생명주기를 가지는 스코프
+
+### 스코프와 프록시
+```java
+@Component
+@Scope(value = "request", proxyMode = ScopedProxyMode.TARGET_CLASS)
+public class MyLogger {
+}
+```
+- 적용 대상이 인터페이스가 아닌 클래스면 TARGET_CLASS 를 선택
+- 적용 대상이 인터페이스면 INTERFACES 를 선택
+- 이렇게 하면 MyLogger의 가짜 프록시 클래스를 만들어두고 HTTP request와 상관 없이 가짜 프록시 클래스를 다른 빈에 미리 주입해 둘 수 있다.
+
+### 웹 스코프와 프록시 동작 원리
+- @Scope 의 proxyMode = ScopedProxyMode.TARGET_CLASS) 를 설정하면 스프링 컨테이너는 CGLIB라는 바이트코드를 조작하는 라이브러리를 사용해서, MyLogger를 상속받은 가짜 프록시 객체를 생성한다.
+- 스프링 컨테이너에 진짜 대신에 이 가짜 프록시 객체를 등록한다. ac.getBean() 로 조회해도 프록시 객체가 조회되는 것을 확인할 수 있다. 그래서 의존관계 주입도 이 가짜 프록시 객체가 주입된다.
+- 가짜 프록시 객체는 요청이 오면 그때 내부에서 진짜 빈을 요청하는 위임 로직이 들어있다.
+- 가짜 프록시 객체는 원본 클래스를 상속 받아서 만들어졌기 때문에 이 객체를 사용하는 클라이언트 입장에서는 사실 원본인지 아닌지도 모르게, 동일하게 사용할 수 있다(다형성)
+
 _참고 문서 및 링크_
 - 스프링 핵심 원리 - 기본편(김영한)
 
